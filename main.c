@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <math.h>
+#include <ctype.h>
 #include "hardware/adc.h"
 #include "hardware/timer.h"
 #include "hardware/pwm.h"
@@ -26,10 +27,11 @@ const uint joystick_y_pin = 26;
 const uint joystick_btn_pin = 22;
 const uint buzzer_pin = 21;
 
-// Variáveis para PWM
+// Variáveis para funcionamento do buzzer
 const uint16_t WRAP = 5000;   
 const float DIV = 0.0;
 uint sliceBuzzer;
+static volatile bool buzzerOn = true;
 
 ssd1306_t ssd;
 static volatile uint16_t pixel_x = CENTRAL_PIXEL_X;
@@ -69,6 +71,10 @@ Rgb desenhoAtual[MATRIZ_ROWS][MATRIZ_COLS] =
 int8_t corAtual = 0;
 Rgb cores[4] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, 0}};
 const uint leds[3] = {led_red_pin, led_green_pin, led_blue_pin};
+
+char recebido;
+uint digito;
+static volatile bool buzzerOn;
 
 static volatile uint tempoAnterior = 0;
 
@@ -139,8 +145,10 @@ int main()
         desenharQuadrado();
 
         if ((joystick_dx != 0 || joystick_dy != 0) && !joystick_moveu && modoEdicao)
-        {
+        {   
+            printf("Movimento do joystick detectado! Delay do joystick em execução..\n");
             moverCursor(joystick_dx, joystick_dy);
+            printf("Cursor na matriz movido!\n");
             joystick_moveu = true;
             add_alarm_in_ms(300, delay_callback, NULL, false);
         }
@@ -149,6 +157,26 @@ int main()
         {
             atualizarDesenho();
             modoAnterior = modoEdicao;
+        }
+        
+        recebido = getchar_timeout_us(100000);
+        if (recebido != PICO_ERROR_TIMEOUT && isdigit(recebido))
+        {   
+            digito = recebido - '0';
+            if (digito == 1)
+            {
+                buzzerOn = true;
+                printf("Funcionalidade do buzzer: ON\n");
+            }
+            else if (digito == 0)
+            {
+                buzzerOn = false;
+                printf("Funcionalidade do buzzer: OFF\n");
+            }
+            else
+            {
+                printf("'1' = Ligar buzzer / '0' = Desligar buzzer\n");
+            }
         }
 
         sleep_ms(10);
@@ -237,6 +265,7 @@ void btn_handler(uint gpio, uint32_t events)
         tempoAnterior = tempoAtual;
         if (gpio == btn_a_pin && modoEdicao)
         {   
+            printf("Botão A pressionado!\n");
             if (cores[corAtual].r)
             {
                 gpio_put(led_red_pin, 0);
@@ -260,16 +289,24 @@ void btn_handler(uint gpio, uint32_t events)
 
         }
         else if (gpio == btn_b_pin && modoEdicao)
-        {
+        {   
+            printf("Botão B pressionado!\n");
             desenhoAtual[c.linha][c.coluna] = cores[corAtual];
 
             // Emitir sinal sonoro no buzzer por 200 ms
-            pwm_set_gpio_level(buzzer_pin, WRAP / 2);
-            add_alarm_in_ms(200, buzzer_off_callback, NULL, false);
+            if (buzzerOn)
+            {
+                printf("Buzzer ativado!\n");
+                pwm_set_gpio_level(buzzer_pin, WRAP / 2);
+                add_alarm_in_ms(200, buzzer_off_callback, NULL, false);
+            }
         }
         else if (gpio == joystick_btn_pin)
-        {
+        {   
+            printf("Botão do joystick pressionado! Entrando no modo ");
             modoEdicao = !modoEdicao;
+            printf(modoEdicao ? "EDICAO\n" : "VISUALIZACAO\n");
+
         }
     }
 }
@@ -354,12 +391,14 @@ void moverCursor(int16_t dx, int16_t dy)
 int64_t delay_callback(alarm_id_t id, void *user_data)
 {
     joystick_moveu = false;
+    printf("Delay do joystick finalizado!\n");
     return 0;
 }
 
 int64_t buzzer_off_callback(alarm_id_t id, void *user_data)
 {
     pwm_set_gpio_level(buzzer_pin, 0);
+    printf("Buzzer desativado!\n");
     return 0;
 }
 
